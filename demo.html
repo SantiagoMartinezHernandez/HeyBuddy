@@ -1,0 +1,32 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Wakeword Demo – "hei buddy"</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2rem; }
+    #log div { padding: 4px 0; border-bottom: 1px solid #eee; }
+  </style>
+</head>
+<body>
+  <h1>Wakeword Demo – "hei buddy"</h1>
+  <p>This page connects to your FastAPI WebSocket and prints wake-word events.</p>
+
+  <div id="log"></div>
+
+  <script>
+    function log(msg) {
+      const d = document.createElement("div");
+      d.textContent = msg;
+      document.getElementById("log").prepend(d);
+    }
+
+    const ws = new WebSocket("ws://127.0.0.1:8000/ws");
+    ws.onopen = () => log("WebSocket connected");
+    ws.onmessage = (m) => log("EVENT: " + m.data);
+    ws.onerror = () => log("WebSocket error");
+    ws.onclose = () => log("WebSocket closed");
+  </script>
+</body>
+</html>
