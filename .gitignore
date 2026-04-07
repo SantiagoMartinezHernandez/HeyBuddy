@@ -43,3 +43,8 @@ build/
 # *.onnx
 # *.tflite
 # pose_landmarker_lite.task
+env/
+venv/
+__pycache__/
+*.pyc
+.DS_Store
