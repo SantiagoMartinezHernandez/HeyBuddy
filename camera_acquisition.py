@@ -3,7 +3,7 @@ import cv2
 import mediapipe as mp
 import numpy as np
 
-
+DISTANCE_THRESHOLD = 0.15  # threshold for identity focus
 
 def calculate_angle(a, b, c):
     a = np.array(a)  # First point
@@ -44,6 +44,8 @@ for video_name in video_files:
     video_path = os.path.join(video_folder, video_name)
     cap = cv2.VideoCapture(video_path)
 
+    prev_center = None
+
     print (f"Processing video: {video_name}")
 
     while cap.isOpened():
@@ -51,6 +53,7 @@ for video_name in video_files:
         if not ret:
             break
 
+        h, w, _ = frame.shape
         # mediapipe requires RGB images, so convert the BGR frame to RGB
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
@@ -59,6 +62,30 @@ for video_name in video_files:
 
         # Draw the pose annotation on the image
         if results.pose_landmarks:
+            landmarks = results.pose_landmarks.landmark
+
+            # Filter step: calculate the current center (hips)
+            curr_hip_l = landmarks[mp_pose.PoseLandmark.LEFT_HIP]
+            curr_hip_r = landmarks[mp_pose.PoseLandmark.RIGHT_HIP]
+            curr_center = np.array([(curr_hip_l.x + curr_hip_r.x) / 2, (curr_hip_l.y + curr_hip_r.y) / 2])
+
+            if prev_center is None:
+                prev_center = curr_center
+            else:
+                # Calculate the distance between the current center and the previous center
+                distance = np.linalg.norm(curr_center - prev_center)
+
+                if distance > DISTANCE_THRESHOLD:
+                    # If the distance exceeds the threshold, we can consider this as a new person and ignore it
+                    # we print a warning on the image
+                    cv2.putText(frame, "WARNING: detection jump: (other person?)", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                    cv2.imshow('Pose Estimation', frame)
+                    if cv2.waitKey(25) & 0xFF == ord('q'):
+                        break
+                    continue  # Skip the rest of the loop and do not update prev_center
+                
+                prev_center = curr_center
+
             mp_drawing.draw_landmarks(
                 frame,
                 results.pose_landmarks,
@@ -67,16 +94,17 @@ for video_name in video_files:
                 mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2)
             )
 
-            landmarks = results.pose_landmarks.landmark
+           
             hip = landmarks[mp_pose.PoseLandmark.LEFT_HIP].x, landmarks[mp_pose.PoseLandmark.LEFT_HIP].y
             knee = landmarks[mp_pose.PoseLandmark.LEFT_KNEE].x, landmarks[mp_pose.PoseLandmark.LEFT_KNEE].y
             ankle = landmarks[mp_pose.PoseLandmark.LEFT_ANKLE].x, landmarks[mp_pose.PoseLandmark.LEFT_ANKLE].y
 
             angle_knee = calculate_angle(hip, knee, ankle)
 
+            knee_pixel = tuple(np.multiply(knee, [w, h]).astype(int))
             # ANGLE DISPLAY
             cv2.putText(frame, f"Knee Angle: {int(angle_knee)} deg",
-                        tuple(np.multiply(knee, [frame.shape[1], frame.shape[0]]).astype(int)),
+                        knee_pixel,
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2, cv2.LINE_AA)
             
             # --- DEPTH ESTIMATION ---
@@ -99,4 +127,5 @@ for video_name in video_files:
             break
 
     cap.release()
-    cv2.destroyAllWindows()
+
+cv2.destroyAllWindows()
