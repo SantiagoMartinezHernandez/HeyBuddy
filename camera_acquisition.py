@@ -4,6 +4,9 @@ import mediapipe as mp
 import numpy as np
 
 DISTANCE_THRESHOLD = 0.15  # threshold for identity focus
+FRAME_WINDOW = 5  # number of frames to consider for smoothing
+ANGLE_SQUAT_MAX = 100
+ANGLE_BACK_MIN = 80
 
 def calculate_angle(a, b, c):
     a = np.array(a)  # First point
@@ -36,15 +39,15 @@ pose = mp_pose.Pose(
 
 # 2. Capture video from the file
 video_folder = "videos_squats/"
-
 #List of video files to process
 video_files = [f for f in os.listdir(video_folder) if f.endswith('.mp4')]
 
 for video_name in video_files:
     video_path = os.path.join(video_folder, video_name)
     cap = cv2.VideoCapture(video_path)
-
     prev_center = None
+    # Initialization of counters for smoothing
+    counters = {"depth": 0, "back": 0, "valgus": 0}
 
     print (f"Processing video: {video_name}")
 
@@ -56,7 +59,6 @@ for video_name in video_files:
         h, w, _ = frame.shape
         # mediapipe requires RGB images, so convert the BGR frame to RGB
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
         # Process the image and find pose landmarks
         results = pose.process(rgb_frame)
 
@@ -69,57 +71,90 @@ for video_name in video_files:
             curr_hip_r = landmarks[mp_pose.PoseLandmark.RIGHT_HIP]
             curr_center = np.array([(curr_hip_l.x + curr_hip_r.x) / 2, (curr_hip_l.y + curr_hip_r.y) / 2])
 
-            if prev_center is None:
-                prev_center = curr_center
-            else:
-                # Calculate the distance between the current center and the previous center
-                distance = np.linalg.norm(curr_center - prev_center)
-
-                if distance > DISTANCE_THRESHOLD:
+            skip_frame = False
+            if prev_center is not None:
+                if np.linalg.norm(curr_center - prev_center) > DISTANCE_THRESHOLD:
                     # If the distance exceeds the threshold, we can consider this as a new person and ignore it
                     # we print a warning on the image
                     cv2.putText(frame, "WARNING: detection jump: (other person?)", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                    cv2.imshow('Pose Estimation', frame)
-                    if cv2.waitKey(25) & 0xFF == ord('q'):
-                        break
-                    continue  # Skip the rest of the loop and do not update prev_center
-                
+                    skip_frame = True
+
+            if not skip_frame:
                 prev_center = curr_center
 
-            mp_drawing.draw_landmarks(
-                frame,
-                results.pose_landmarks,
-                mp_pose.POSE_CONNECTIONS,
-                mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2),
-                mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2)
-            )
 
-           
-            hip = landmarks[mp_pose.PoseLandmark.LEFT_HIP].x, landmarks[mp_pose.PoseLandmark.LEFT_HIP].y
-            knee = landmarks[mp_pose.PoseLandmark.LEFT_KNEE].x, landmarks[mp_pose.PoseLandmark.LEFT_KNEE].y
-            ankle = landmarks[mp_pose.PoseLandmark.LEFT_ANKLE].x, landmarks[mp_pose.PoseLandmark.LEFT_ANKLE].y
+                # --- 2. DATA EXTRACTION ---
+                # left side for profile
+                l_shoulder = landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER].x, landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER].y
+                l_hip = landmarks[mp_pose.PoseLandmark.LEFT_HIP].x, landmarks[mp_pose.PoseLandmark.LEFT_HIP].y
+                l_knee = landmarks[mp_pose.PoseLandmark.LEFT_KNEE].x, landmarks[mp_pose.PoseLandmark.LEFT_KNEE].y
+                l_ankle = landmarks[mp_pose.PoseLandmark.LEFT_ANKLE].x, landmarks[mp_pose.PoseLandmark.LEFT_ANKLE].y
 
-            angle_knee = calculate_angle(hip, knee, ankle)
+                # right sife for face sight (valgus)
+                r_shoulder = landmarks[mp_pose.PoseLandmark.RIGHT_SHOULDER].x, landmarks[mp_pose.PoseLandmark.RIGHT_SHOULDER].y
+                r_hip = landmarks[mp_pose.PoseLandmark.RIGHT_HIP].x, landmarks[mp_pose.PoseLandmark.RIGHT_HIP].y
+                r_knee = landmarks[mp_pose.PoseLandmark.RIGHT_KNEE].x, landmarks[mp_pose.PoseLandmark.RIGHT_KNEE].y
+                r_ankle = landmarks[mp_pose.PoseLandmark.RIGHT_ANKLE].x, landmarks[mp_pose.PoseLandmark.RIGHT_ANKLE].y
 
-            knee_pixel = tuple(np.multiply(knee, [w, h]).astype(int))
-            # ANGLE DISPLAY
-            cv2.putText(frame, f"Knee Angle: {int(angle_knee)} deg",
-                        knee_pixel,
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2, cv2.LINE_AA)
+                # --- 3. POSTURE ANALYSIS ---
+                angle_knee = calculate_angle(l_hip, l_knee, l_ankle)
+                angle_back = calculate_angle(l_shoulder, l_hip, l_knee)
+                dist_knees = abs(l_knee[0] - r_knee[0])
+                dist_hips = abs(l_hip[0] - r_hip[0])
+
+                # --- 4. COUNTERS ---
+                # depth counter
+                if angle_knee > ANGLE_SQUAT_MAX:
+                    counters["depth"] += 1
+                else:
+                    counters["depth"] = 0
+
+                # back counter
+                if angle_back < ANGLE_BACK_MIN:
+                    counters["back"] += 1
+                else:
+                    counters["back"] = 0
+
+                # valgus counter
+                if dist_knees < (dist_hips * 0.85):  # example threshold for valgus
+                    counters["valgus"] += 1
+                else:
+                    counters["valgus"] = 0
+
+                # 5. WARNING CONFIGURATION
+                warning_texts = []
+                if counters["depth"] >= FRAME_WINDOW:
+                    warning_texts.append("Depth not reached, go lower!")
+
+                if counters["back"] >= FRAME_WINDOW:
+                    warning_texts.append("Back not straight, keep it upright!")
+                
+                if counters["valgus"] >= FRAME_WINDOW:
+                    warning_texts.append("Knees inward, keep them aligned with hips!")
+
+                color = (0, 0, 255) if warning_texts else (0, 255, 0)
+                mp_drawing.draw_landmarks(
+                    frame,
+                    results.pose_landmarks,
+                    mp_pose.POSE_CONNECTIONS,
+                    mp_drawing.DrawingSpec(color=color, thickness=2, circle_radius=2),
+                    mp_drawing.DrawingSpec(color=color, thickness=2)
+                )
+
+                # Display warnings
+                for i, text in enumerate(warning_texts):
+                    cv2.putText(frame, text, (50, 50 + i*30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
             
-            # --- DEPTH ESTIMATION ---
-            if angle_knee < 90:
-                cv2.putText(frame, "VALID SQUAT", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)   
+
+                knee_pixel = tuple(np.multiply(l_knee, [w, h]).astype(int))
+                # ANGLE DISPLAY
+                cv2.putText(frame, f"Knee Angle: {int(angle_knee)} deg",
+                            knee_pixel,
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2, cv2.LINE_AA)
             
-            # Example: Extracting the coordinates of the left knee (landmark index 25)
-            #we multiply by the frame dimensions to get pixel coordinates
-            h, w, _ = frame.shape
-            knee_l = landmarks[mp_pose.PoseLandmark.LEFT_KNEE]
-            knee_l_x = int(knee_l.x * w)
-            knee_l_y = int(knee_l.y * h)
+            
 
-
-        # Display the resulting frame
+            # Display the resulting frame
         cv2.imshow('Pose Estimation', frame)
 
         # Exit on 'q' key press
