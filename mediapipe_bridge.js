@@ -40,9 +40,18 @@ pose.setOptions({
 
 pose.onResults((results) => {
     if (results.poseLandmarks && dartCallback) {
-        // Map the results to a simple JSON string to easily pass to Dart
+        // Map the landmarks as usual
         const landmarks = results.poseLandmarks.map(lm => ({x: lm.x, y: lm.y, z: lm.z, visibility: lm.visibility}));
-        dartCallback(JSON.stringify(landmarks));
+        
+        // NEW: Grab the TRUE hardware resolution of the video feed
+        const payload = {
+            landmarks: landmarks,
+            vWidth: videoElement.videoWidth || 640,
+            vHeight: videoElement.videoHeight || 480
+        };
+        
+        // Send the bundled object instead of just the array
+        dartCallback(JSON.stringify(payload));
     }
 });
 
