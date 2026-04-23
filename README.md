@@ -17,3 +17,11 @@ FastAPI – HTTP API
 Gemini 2.0 Flash – fast, low‑latency text generation
 python‑dotenv – environment variable management
 google‑genai SDK – Gemini API client
+
+flowchart TD
+    A[Camera / Sensor] --> B[Pose Estimation]
+    B --> C[Movement Metrics]
+    C --> D[Aggregation\n(per set)]
+    D --> E[FastAPI Backend\n/ai/feedback]
+    E --> F[Gemini 2.0 Flash]
+    F --> G[Coaching Feedback]
