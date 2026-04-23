@@ -1,4 +1,6 @@
-# ---- Python ----
+# =========================
+# Python
+# =========================
 __pycache__/
 *.py[cod]
 *.pyo
@@ -7,44 +9,54 @@ __pycache__/
 *.dll
 *.log
 
+# =========================
 # Virtual environments
+# =========================
 venv/
-.env*/
 .venv/
 
+# =========================
+# Backend secrets (ENV / Gemini)
+# =========================
+.env
+.env.*
+buddy_backend/.env
+
+# =========================
 # Tools & caches
+# =========================
 .mypy_cache/
 .pytest_cache/
 .ipynb_checkpoints/
 .coverage*
 htmlcov/
 
-# Editors/IDE
+# =========================
+# Editors / IDE
+# =========================
 .vscode/
 .idea/
 *.code-workspace
 
+# =========================
 # OS junk
+# =========================
 .DS_Store
 Thumbs.db
 
+# =========================
 # Node / web (if present)
+# =========================
 node_modules/
 dist/
 build/
 
-# Project-specific (safe defaults)
-# Comment the next line if you WANT to commit your env file
-.env
-
-# Media/large files (optional – uncomment if needed)
+# =========================
+# ML / media (optional)
+# Uncomment if models should NOT be versioned
+# =========================
 # *.wav
 # *.mp4
 # *.onnx
 # *.tflite
-# pose_landmarker_lite.task
-env/
-venv/
-__pycache__/
-*.pyc
-.DS_Store
+# *.task
