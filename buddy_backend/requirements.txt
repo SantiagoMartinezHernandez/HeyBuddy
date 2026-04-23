@@ -1,7 +1,4 @@
-
-cat > buddy_backend/requirements.txt <<'EOF'
 fastapi
 uvicorn
 python-dotenv
 google-generativeai
-EOF
