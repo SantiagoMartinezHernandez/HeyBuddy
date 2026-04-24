@@ -61,6 +61,9 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
   bool _isSquattingDown = false;
   double _currentKneeAngle = 180.0; // Start standing straight
 
+  //Knee Alignment Tracking Variable
+  String _kneeAlignmentWarning = '';
+
   @override
   void initState() {
     super.initState();
@@ -254,10 +257,31 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
     var knee = landmarks[25];
     var ankle = landmarks[27];
 
+    //Using the landmarks on the knees to controle the gap between them
+    var rightKnee = landmarks[26];
+    var leftKnee = landmarks[24];
+
     if (hip['visibility'] > 0.6 &&
         knee['visibility'] > 0.6 &&
         ankle['visibility'] > 0.6) {
       double angle = Biomechanics.calculateAngle(hip, knee, ankle);
+    
+    //Checking if the knee gap is at least 1.1 times the hips gap
+    //First we check if the user is squatting
+    if (angle < 150.00 &&
+        knee['visibility'] > 0.6 &&
+        ankle['visibility'] > 0.6) {
+          double kneeGap = (knee[x] - rightKnee['x']).abs();
+          double HipGap = (knee[x] - rightHip['x']).abs();
+        }
+
+          //If the knees are less than 110% as wide as the hips, we trigger the alert
+          if (kneeGap > HipGap * 1.1){
+              setState(() { _kneeAlignmentWarning = '⚠️ Knees caving in!'; });
+          }
+          else {setState(() { _kneeAlignmentWarning = ''});}
+    //If the user is not squatting
+    else else {setState(() { _kneeAlignmentWarning = ''});}
 
       setState(() {
         _currentKneeAngle = angle;
