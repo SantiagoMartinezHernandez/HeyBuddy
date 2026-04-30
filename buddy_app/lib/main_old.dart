@@ -61,14 +61,8 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
   bool _isSquattingDown = false;
   double _currentKneeAngle = 180.0; // Start standing straight
 
-  // Posture Tracking Variables
+  //Knee Alignment Tracking Variable
   String _kneeAlignmentWarning = '';
-  String _forwardLeanWarning = '';
-  double _standingTorsoHeight = 0.0; // Captured during calibration
-
-  // Rep Validity Variables
-  bool _hadFormIssue = false;   // true if any warning fired during this rep
-  bool _repWasInvalid = false;  // true after a bad rep, until next squat starts
 
   @override
   void initState() {
@@ -175,12 +169,6 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
       setState(() {
         _isCalibrated = isNowCalibrated;
         if (_isCalibrated) {
-          // Capture standing torso height as the lean baseline
-          double shoulderMidY = (landmarks[11]['y'] + landmarks[12]['y']) / 2;
-          double hipMidY      = (landmarks[23]['y'] + landmarks[24]['y']) / 2;
-          _standingTorsoHeight = (hipMidY - shoulderMidY).abs();
-          print("📐 Standing torso height captured: $_standingTorsoHeight");
-
           _instructionText = "Perfect.\nSay 'Hey Buddy' to begin.";
           if (_speechEnabled && !_isMicActive) {
             _isMicActive = true;
@@ -261,80 +249,53 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
     });
   }
 
-  // --- EXERCISE LOGIC ---
+  // --- NEW: EXERCISE LOGIC ---
   void _processExercise(List<dynamic> landmarks) {
-    var hip       = landmarks[23]; // left hip
-    var knee      = landmarks[25]; // left knee
-    var ankle     = landmarks[27]; // left ankle
+    // We will use the Left leg for this example: Hip (23), Knee (25), Ankle (27)
+    // You can easily mirror this for the right leg or average them out later!
+    var hip = landmarks[23];
+    var knee = landmarks[25];
+    var ankle = landmarks[27];
+
+    //Using the landmarks on the knees to controle the gap between them
     var rightKnee = landmarks[26];
-    var rightHip  = landmarks[24];
+    var leftKnee = landmarks[24];
 
     if (hip['visibility'] > 0.6 &&
         knee['visibility'] > 0.6 &&
         ankle['visibility'] > 0.6) {
       double angle = Biomechanics.calculateAngle(hip, knee, ankle);
-
-      if (angle < 150.0) {
-        // New squat starting — clear the invalid rep flash
-        if (_repWasInvalid && !_isSquattingDown) {
-          setState(() {
-            _repWasInvalid = false;
-            _hadFormIssue = false;
-          });
+    
+    //Checking if the knee gap is at least 1.1 times the hips gap
+    //First we check if the user is squatting
+    if (angle < 150.00 &&
+        knee['visibility'] > 0.6 &&
+        ankle['visibility'] > 0.6) {
+          double kneeGap = (knee[x] - rightKnee['x']).abs();
+          double HipGap = (knee[x] - rightHip['x']).abs();
         }
 
-        // --- KNEE ALIGNMENT CHECK ---
-        if (rightKnee['visibility'] > 0.6 && rightHip['visibility'] > 0.6) {
-          double kneeGap = (knee['x'] - rightKnee['x']).abs();
-          double hipGap  = (hip['x']  - rightHip['x']).abs();
-          if (kneeGap < hipGap * 1.1) {
-            setState(() { _kneeAlignmentWarning = '⚠️ Knees caving in!'; });
-            _hadFormIssue = true;
-          } else {
-            setState(() { _kneeAlignmentWarning = ''; });
+          //If the knees are less than 110% as wide as the hips, we trigger the alert
+          if (kneeGap > HipGap * 1.1){
+              setState(() { _kneeAlignmentWarning = '⚠️ Knees caving in!'; });
           }
-        }
-
-        // --- FORWARD LEAN CHECK ---
-        if (_standingTorsoHeight > 0.0 &&
-            landmarks[11]['visibility'] > 0.6 &&
-            landmarks[12]['visibility'] > 0.6) {
-          double shoulderMidY = (landmarks[11]['y'] + landmarks[12]['y']) / 2;
-          double hipMidY      = (landmarks[23]['y'] + landmarks[24]['y']) / 2;
-          double leanRatio = (hipMidY - shoulderMidY).abs() / _standingTorsoHeight;
-          if (leanRatio < 0.80) {
-            setState(() { _forwardLeanWarning = '⚠️ Chest up!'; });
-            _hadFormIssue = true;
-          } else {
-            setState(() { _forwardLeanWarning = ''; });
-          }
-        }
-
-      } else {
-        // Standing upright — clear all posture warnings
-        setState(() {
-          _kneeAlignmentWarning = '';
-          _forwardLeanWarning = '';
-        });
-      }
+          else {setState(() { _kneeAlignmentWarning = ''});}
+    //If the user is not squatting
+    else else {setState(() { _kneeAlignmentWarning = ''});}
 
       setState(() {
         _currentKneeAngle = angle;
 
+        // The Squat State Machine
         if (angle < 90.0 && !_isSquattingDown) {
+          // User hit the bottom of the squat!
           _isSquattingDown = true;
           print("🔽 Squat depth reached!");
         } else if (angle > 160.0 && _isSquattingDown) {
+          // User stood back up!
           _isSquattingDown = false;
           _repCount++;
-          if (_hadFormIssue) {
-            _repWasInvalid = true;
-            print("⚠️ Rep $_repCount completed with bad form");
-          } else {
-            _repWasInvalid = false;
-            print("✅ Rep $_repCount completed cleanly");
-          }
-          _hadFormIssue = false;
+          print("✅ Rep Completed! Total: $_repCount");
         }
       });
     }
@@ -349,12 +310,7 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
         fit: StackFit.expand,
         children: [
           // The background skeleton
-          CustomPaint(painter: SkeletonPainter(
-            _currentLandmarks,
-            kneeWarning: _kneeAlignmentWarning.isNotEmpty,
-            leanWarning: _forwardLeanWarning.isNotEmpty,
-            repInvalid: _repWasInvalid,
-          )),
+          CustomPaint(painter: SkeletonPainter(_currentLandmarks)),
 
           // 1. THE CALIBRATION SCREEN
           if (_currentState == AppState.calibrating)
@@ -431,6 +387,28 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
                   borderRadius: BorderRadius.circular(30),
                   border: Border.all(color: Colors.greenAccent, width: 2),
                 ),
+
+                // Knee alignment warning — shows in the center of the screen
+                if (_kneeAlignmentWarning.isNotEmpty)
+                  Center(
+                    child: Container(
+                      margin: const EdgeInsets.only(top: 200),
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withOpacity(0.85),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Text(
+                        _kneeAlignmentWarning,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+
                 child: const Row(
                   children: [
                     Icon(Icons.mic, color: Colors.greenAccent, size: 24),
@@ -448,27 +426,6 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
               ),
             ),
           ),
-
-          // Knee alignment warning — shows in the center of the screen
-          if (_kneeAlignmentWarning.isNotEmpty)
-            Center(
-              child: Container(
-                margin: const EdgeInsets.only(top: 200),
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                decoration: BoxDecoration(
-                  color: Colors.red.withOpacity(0.85),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Text(
-                  _kneeAlignmentWarning,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
         ],
       ),
     );
@@ -707,53 +664,23 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
 
 class SkeletonPainter extends CustomPainter {
   final List<dynamic> landmarks;
-  final bool kneeWarning;  // legs → red
-  final bool leanWarning;  // torso → orange
-  final bool repInvalid;   // whole skeleton → yellow
 
-  SkeletonPainter(
-    this.landmarks, {
-    this.kneeWarning = false,
-    this.leanWarning = false,
-    this.repInvalid = false,
-  });
+  SkeletonPainter(this.landmarks);
 
   @override
   void paint(Canvas canvas, Size size) {
     if (landmarks.isEmpty) return;
 
-    final paintPoint = Paint()
-      ..color = Colors.greenAccent
-      ..strokeWidth = 6
-      ..strokeCap = StrokeCap.round;
+    final paintPoint =
+        Paint()
+          ..color = Colors.greenAccent
+          ..strokeWidth = 6
+          ..strokeCap = StrokeCap.round;
 
-    final paintLine = Paint()
-      ..color = Colors.greenAccent.withOpacity(0.5)
-      ..strokeWidth = 3;
-
-    final paintLegWarning = Paint()
-      ..color = Colors.redAccent.withOpacity(0.9)
-      ..strokeWidth = 5
-      ..strokeCap = StrokeCap.round;
-
-    final paintTorsoWarning = Paint()
-      ..color = Colors.orangeAccent.withOpacity(0.9)
-      ..strokeWidth = 5
-      ..strokeCap = StrokeCap.round;
-
-    // Yellow overrides everything — shown after a bad rep until next squat starts
-    final paintInvalidRep = Paint()
-      ..color = Colors.yellowAccent.withOpacity(0.85)
-      ..strokeWidth = 4
-      ..strokeCap = StrokeCap.round;
-
-    final paintInvalidPoint = Paint()
-      ..color = Colors.yellowAccent
-      ..strokeWidth = 6
-      ..strokeCap = StrokeCap.round;
-
-    const legConnections   = {'[23, 25]', '[25, 27]', '[24, 26]', '[26, 28]'};
-    const torsoConnections = {'[11, 12]', '[11, 23]', '[12, 24]', '[23, 24]'};
+    final paintLine =
+        Paint()
+          ..color = Colors.greenAccent.withOpacity(0.5)
+          ..strokeWidth = 3;
 
     // Define the pairs of landmarks to connect (Torso, Arms, Legs)
     final connections = [
@@ -767,8 +694,9 @@ class SkeletonPainter extends CustomPainter {
     // Draw lines
     for (var connection in connections) {
       final start = landmarks[connection[0]];
-      final end   = landmarks[connection[1]];
+      final end = landmarks[connection[1]];
 
+      // Only draw if both points are reasonably visible
       if (start['visibility'] > 0.5 && end['visibility'] > 0.5) {
         // FLIP THE X AXIS for the mirror effect: (1.0 - x)
         final startOffset = Offset(
@@ -779,18 +707,7 @@ class SkeletonPainter extends CustomPainter {
           (1.0 - end['x']) * size.width,
           end['y'] * size.height,
         );
-
-        // Priority: yellow > red/orange > green
-        Paint paint = paintLine;
-        if (repInvalid) {
-          paint = paintInvalidRep;
-        } else {
-          final key = connection.toString();
-          if (kneeWarning && legConnections.contains(key))   paint = paintLegWarning;
-          if (leanWarning && torsoConnections.contains(key)) paint = paintTorsoWarning;
-        }
-
-        canvas.drawLine(startOffset, endOffset, paint);
+        canvas.drawLine(startOffset, endOffset, paintLine);
       }
     }
 
@@ -805,7 +722,7 @@ class SkeletonPainter extends CustomPainter {
         );
         // FIX: Use drawCircle instead of drawPoint.
         // The 4.0 is the radius of the joint node.
-        canvas.drawCircle(offset, 4.0, repInvalid ? paintInvalidPoint : paintPoint);
+        canvas.drawCircle(offset, 4.0, paintPoint);
       }
     }
   }
