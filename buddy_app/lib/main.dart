@@ -387,6 +387,28 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
                   borderRadius: BorderRadius.circular(30),
                   border: Border.all(color: Colors.greenAccent, width: 2),
                 ),
+
+                // Knee alignment warning — shows in the center of the screen
+                if (_kneeAlignmentWarning.isNotEmpty)
+                  Center(
+                    child: Container(
+                      margin: const EdgeInsets.only(top: 200),
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withOpacity(0.85),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Text(
+                        _kneeAlignmentWarning,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+
                 child: const Row(
                   children: [
                     Icon(Icons.mic, color: Colors.greenAccent, size: 24),
