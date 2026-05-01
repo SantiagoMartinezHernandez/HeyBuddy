@@ -495,9 +495,11 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
               color: Colors.black87,
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
-                // Pulse green when a rep is successfully hit!
+                // Pulse green when descending with good form, red if form issues!
                 color:
-                    _isSquattingDown ? Colors.greenAccent : Colors.blueAccent,
+                    _isSquattingDown
+                        ? (_hadFormIssue ? Colors.redAccent : Colors.greenAccent)
+                        : Colors.blueAccent,
                 width: 3,
               ),
             ),
