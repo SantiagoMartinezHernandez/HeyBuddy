@@ -9,6 +9,24 @@ ANGLE_SQUAT_MAX = 100
 ANGLE_BACK_MIN = 80
 SIDEBAR_WIDTH = 350
 
+# Gamma correction for better visibility
+# Gamma < 1 will brighten the image, while gamma > 1 will darken it. Adjust as needed.
+def apply_gamma_correction(frame, gamma):
+    inv_gamma = 1.0 / gamma
+    table = np.array([np.clip(pow(i / 255.0, inv_gamma) * 255.0, 0, 255) 
+                      for i in np.arange(0, 256)]).astype("uint8")
+    return cv2.LUT(frame, table)
+
+def clahe_contrast_enhancement(frame):
+    lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)) # low clipLimit to avoid over-enhancement
+    l = clahe.apply(l)
+    lab = cv2.merge((l, a, b))
+    frame = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+    return frame
+
+
 def calculate_angle(a, b, c):
     a = np.array(a)  # First point
     b = np.array(b)  # Mid point
@@ -52,6 +70,18 @@ for video_name in video_files:
         ret, frame = cap.read()
         if not ret:
             break
+
+        # 1. Resize the frame for faster processing
+        frame = cv2.resize(frame, (640, 480))
+
+        # 2. Gamma correction for better visibility
+        frame = apply_gamma_correction(frame, gamma=0.8)
+
+        # 3. CLAHE for contrast enhancement
+        frame = clahe_contrast_enhancement(frame)
+
+        # 4. Median blur to reduce noise while preserving edges
+        frame = cv2.medianBlur(frame, 5) #lower the kernel size to avoid over-smoothing
 
         h, w, _ = frame.shape
         # --- CREATE SIDEBAR ---
