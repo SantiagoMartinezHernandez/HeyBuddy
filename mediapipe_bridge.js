@@ -6,7 +6,7 @@ videoElement.style.display = 'block';
 videoElement.style.position = 'absolute';
 videoElement.style.width = '100vw';
 videoElement.style.height = '100vh';
-videoElement.style.objectFit = 'cover'; // We keep this for proper responsiveness math!
+videoElement.style.objectFit = 'contain'; // We keep this for proper responsiveness math!
 videoElement.style.transform = 'scaleX(-1)'; // Mirror effect
 videoElement.style.zIndex = '-1'; // Push behind Flutter
 videoElement.style.border = 'none'; // CRITICAL FIX: Ensure no browser borders
@@ -40,18 +40,9 @@ pose.setOptions({
 
 pose.onResults((results) => {
     if (results.poseLandmarks && dartCallback) {
-        // Map the landmarks as usual
+        // Map the results to a simple JSON string to easily pass to Dart
         const landmarks = results.poseLandmarks.map(lm => ({x: lm.x, y: lm.y, z: lm.z, visibility: lm.visibility}));
-        
-        // NEW: Grab the TRUE hardware resolution of the video feed
-        const payload = {
-            landmarks: landmarks,
-            vWidth: videoElement.videoWidth || 640,
-            vHeight: videoElement.videoHeight || 480
-        };
-        
-        // Send the bundled object instead of just the array
-        dartCallback(JSON.stringify(payload));
+        dartCallback(JSON.stringify(landmarks));
     }
 });
 

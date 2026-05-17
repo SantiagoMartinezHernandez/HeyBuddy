@@ -1,43 +1,167 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.js"
-    crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-  <script src="mediapipe_bridge.js" defer></script>
-  <!--
-    If you are serving your web app in a path other than the root, change the
-    href value below to reflect the base path you are serving from.
-
-    The path provided below has to start and end with a slash "/" in order for
-    it to work correctly.
-
-    For more details:
-    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
-
-    This is a placeholder for base href that will be replaced by the value of
-    the `--base-href` argument provided to `flutter build`.
-  -->
   <base href="/HeyBuddy/">
-
   <meta charset="UTF-8">
-  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nexus Protocol</title>
+  
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
 
-  <!-- iOS meta tags & icons -->
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="buddy_app">
-  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <script>
+    let dartImuCallback = null;
+    let dartLandmarksCallback = null;
 
-  <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png"/>
+    // We no longer need macToSlot for sending data, but we keep it declared just in case.
+    let macToSlot = {}; 
 
-  <title>buddy_app</title>
-  <link rel="manifest" href="manifest.json">
+    window.setImuCallback = function(callback) { dartImuCallback = callback; };
+    window.setLandmarksCallback = function(callback) { dartLandmarksCallback = callback; };
+
+    let port;
+    let reader;
+    let serialBuffer = new Uint8Array(0);
+
+    window.connectNexusSerial = async function() {
+      try {
+        port = await navigator.serial.requestPort();
+        await port.open({ baudRate: 115200 }); 
+        console.log("Nexus Hardware Connected! Listening for bytes...");
+        readLoop();
+      } catch (e) {
+        console.error("Serial Connection Failed:", e);
+      }
+    };
+
+    // ==========================================
+    // THE FIX: ABSOLUTE DUMMY FUNCTIONS
+    // These satisfy the Dart JS Interop so Flutter doesn't crash, 
+    // but they DO NOT touch the serial port at all!
+    // ==========================================
+    window.triggerHardwareLock = async function(macStr) {
+      console.log(`[STABLE MODE] Dart requested lock for ${macStr}. Ignored to prevent hardware crashes.`);
+    };
+
+    window.triggerHardwareUnlock = async function(macStr) {
+      console.log(`[STABLE MODE] Dart requested unlock for ${macStr}. Ignored to prevent hardware crashes.`);
+    };
+    // ==========================================
+    // PERSISTENT MEMORY (LOCAL STORAGE)
+    // ==========================================
+    window.saveAssignmentsToStorage = function(jsonStr) {
+        localStorage.setItem('nexus_memory', jsonStr);
+        console.log("[MEMORY] State saved to browser.");
+    };
+
+    window.loadAssignmentsFromStorage = function() {
+        return localStorage.getItem('nexus_memory') || "{}";
+    };
+
+    window.clearAssignmentsFromStorage = function() {
+        localStorage.removeItem('nexus_memory');
+        console.log("[MEMORY] State erased.");
+    };
+    async function readLoop() {
+      reader = port.readable.getReader();
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          if (value) {
+            let newBuffer = new Uint8Array(serialBuffer.length + value.length);
+            newBuffer.set(serialBuffer); 
+            newBuffer.set(value, serialBuffer.length);
+            serialBuffer = newBuffer;
+
+            while (serialBuffer.length >= 139) { 
+                let syncIndex = serialBuffer.indexOf(0xBB); 
+                
+                if (syncIndex === -1) { 
+                    serialBuffer = new Uint8Array(0); 
+                    break; 
+                }
+                if (syncIndex > 0) {
+                    serialBuffer = serialBuffer.slice(syncIndex);
+                }
+                if (serialBuffer.length >= 139) {
+                    let packet = serialBuffer.slice(0, 139);
+                    serialBuffer = serialBuffer.slice(139);
+                    parseNexusPacket(packet);
+                }
+            }
+          }
+        }
+      } catch (error) { 
+        console.error("Read Error:", error); 
+      } finally { 
+        if (reader) reader.releaseLock(); 
+      }
+    }
+
+    function parseNexusPacket(packet) {
+      const dv = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
+      let activeBitmask = dv.getUint8(5); 
+
+      for(let slot = 0; slot < 4; slot++) {
+        if ((activeBitmask & (1 << slot)) !== 0) {
+          let baseOffset = 6 + (slot * 27);
+          
+          let qI = dv.getInt16(baseOffset + 0, true) / 16384.0;
+          let qJ = dv.getInt16(baseOffset + 2, true) / 16384.0;
+          let qK = dv.getInt16(baseOffset + 4, true) / 16384.0;
+          let qReal = dv.getInt16(baseOffset + 6, true) / 16384.0;
+
+          let ax = dv.getInt16(baseOffset + 14, true) / 256.0;
+          let ay = dv.getInt16(baseOffset + 16, true) / 256.0;
+          let az = dv.getInt16(baseOffset + 18, true) / 256.0;
+
+          let macOffset = 114 + (slot * 6);
+          let macArr = [];
+          for(let m = 0; m < 6; m++) { macArr.push(dv.getUint8(macOffset + m).toString(16).padStart(2, '0').toUpperCase()); }
+          let macStr = macArr.join(':');
+          
+          if (macStr === "00:00:00:00:00:00" || !macStr.includes(":")) continue;
+
+          macToSlot[macStr] = slot + 1; // Keep mapping just in case, harmless.
+
+          if (dartImuCallback) {
+            dartImuCallback(macStr, ax, ay, az, qI, qJ, qK, qReal);
+          }
+        }
+      }
+    }
+  </script>
 </head>
-<body>
+<body style="background-color: black; margin: 0; overflow: hidden;">
+
+  <script>
+    const videoElement = document.createElement('video');
+    videoElement.autoplay = true;     
+    videoElement.muted = true;        
+    videoElement.playsInline = true;  
+    videoElement.style.position = 'absolute';
+    videoElement.style.width = '100vw';
+    videoElement.style.height = '100vh';
+    videoElement.style.objectFit = 'contain'; 
+    videoElement.style.transform = 'scaleX(-1)'; 
+    videoElement.style.zIndex = '-1';           
+    document.body.appendChild(videoElement);
+    
+    const pose = new Pose({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`});
+    pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+
+    pose.onResults((results) => {
+      if (results.poseLandmarks && dartLandmarksCallback) {
+        const landmarks = results.poseLandmarks.map(lm => ({x: lm.x, y: lm.y, visibility: lm.visibility}));
+        dartLandmarksCallback(JSON.stringify(landmarks));
+      }
+    });
+
+    const camera = new Camera(videoElement, { onFrame: async () => { await pose.send({image: videoElement}); }, width: 640, height: 480 });
+    camera.start();
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 {
-    "name": "buddy_app",
-    "short_name": "buddy_app",
+    "name": "heybuddy",
+    "short_name": "heybuddy",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
